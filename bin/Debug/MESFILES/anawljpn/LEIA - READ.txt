@@ -1,0 +1,47 @@
+--- PORTUGUÊS ---
+
+JOGO: Harvest Moon: Another Wonderful Life
+VERSÃO: GameCube (NGC) - JAP
+
+Coloque os seguintes arquivos .MES DENTRO DESTA PASTA para modificar esta versão do jogo:
+
+- farmcrop.mes
+- item.mes
+- people.mes
+- phrase.mes
+- string.mes
+- structure.mes
+
+
+======================================================================
+
+--- ENGLISH ---
+
+GAME: Harvest Moon: Another Wonderful Life
+VERSION: GameCube (NGC) - JAP
+
+Place the following .MES files INSIDE THIS FOLDER to modify this game version:
+
+- farmcrop.mes
+- item.mes
+- people.mes
+- phrase.mes
+- string.mes
+- structure.mes
+
+
+======================================================================
+
+--- ESPAÑOL ---
+
+JUEGO: Harvest Moon: Another Wonderful Life
+VERSIÓN: GameCube (NGC) - JAP
+
+Coloque los siguientes archivos .MES DENTRO DE ESTA CARPETA para modificar esta versión del juego:
+
+- farmcrop.mes
+- item.mes
+- people.mes
+- phrase.mes
+- string.mes
+- structure.mes
