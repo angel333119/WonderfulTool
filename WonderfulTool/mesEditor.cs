@@ -586,7 +586,7 @@ namespace WonderfulTool
             // EN: Set of tag prefixes that should not be broken in the middle.
             var unbreakableTagPrefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        "CLEAR", "COLOR", "COLORRGBA", "CHOICE", "CHOICEYN", "GOLD", "WAIT", "PLAYSFX", "FACE", "PREVINPUT", "TEXTSIZE"
+        "CLEAR", "PHRASE" , "COLOR", "COLORRGBA", "CHOICE", "CHOICEYN", "GOLD", "WAIT", "PLAYSFX", "FACE", "PREVINPUT", "TEXTSIZE"
     };
 
             // ETAPA 1: Pré-cálculo da altura total do texto
@@ -1183,11 +1183,26 @@ namespace WonderfulTool
                     }
                     catch (IndexOutOfRangeException) { sb.Append("-ERRO_PARAM"); }
                     break;
+                
+                case "PHRASE":
+                case "PHRASE2":
+                    try
+                    {
+                        ushort id = data[i]; // Lê apenas 1 byte
+                        string name = id.ToString();
+                        string key = "phrase";
+
+                        if (dadosDasTags.TryGetValue(key, out var list) && id < list.Count)
+                            name = list[id];
+
+                        sb.Append($"-{name}");
+                        i += 1; // Avança apenas 1 byte
+                    }
+                    catch (IndexOutOfRangeException) { sb.Append("-ERRO_PARAM"); }
+                    break;
 
                 case "ITEM":
                 case "CROP":
-                case "PHRASE":
-                case "PHRASE2":
                 case "STRING":
                     try
                     {
@@ -1283,7 +1298,16 @@ namespace WonderfulTool
                             {
                                 if (i + 3 >= data.Length) { sb.Append("ERRO"); break; }
                                 uint p_int = (uint)(data[i] << 24 | data[i + 1] << 16 | data[i + 2] << 8 | data[i + 3]);
-                                sb.Append(p_int);
+                                if (instruction.Name.Equals("COLORRGBA", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    // Formato hexadecimal específico para COLORRGBA
+                                    sb.Append($"0x{p_int:X8}");
+                                }
+                                else
+                                {
+                                    // Formato decimal padrão para todas as outras instruções com PARAM_INT
+                                    sb.Append(p_int);
+                                }
                                 i += 4;
                             }
                             // PT: Fallback para parâmetros desconhecidos.
@@ -1309,6 +1333,7 @@ namespace WonderfulTool
             if (data.Length == 0) return "";
 
             var sb = new StringBuilder();
+            sb.Clear();
             int i = 0;
             while (i < data.Length)
             {
@@ -1541,10 +1566,28 @@ namespace WonderfulTool
                                 }
                                 break;
 
-                            case "ITEM":
-                            case "CROP":
                             case "PHRASE":
                             case "PHRASE2":
+                                if (tagParts.Length > 1)
+                                {
+                                    string name = tagParts[1];
+                                    string key = "phrase";
+
+                                    // Tenta encontrar o ID no mapa reverso
+                                    if (reverseDadosDasTags.TryGetValue(key, out var reverseMap) && reverseMap.TryGetValue(name, out ushort id))
+                                    {
+                                        result.Add((byte)id); // Escreve APENAS 1 byte
+                                    }
+                                    // Se não encontrar, tenta converter o nome para um número (fallback)
+                                    else if (byte.TryParse(name, out byte numId))
+                                    {
+                                        result.Add(numId);
+                                    }
+                                }
+                                break;
+
+                            case "ITEM":
+                            case "CROP":
                             case "STRING":
                             case "PLAYSFX":
                                 if (tagParts.Length > 1)
@@ -1615,13 +1658,15 @@ namespace WonderfulTool
 
                                     if (paramType.EndsWith("_BYTE") || paramType.EndsWith("COLORID"))
                                     {
-                                        if (byte.TryParse(paramValueStr, out byte val)) result.Add(val);
+                                        if (byte.TryParse(paramValueStr, out byte val))
+                                            result.Add(val);
                                     }
                                     else if (paramType.EndsWith("_SHORT") || paramType.EndsWith("ID"))
                                     {
                                         if (ushort.TryParse(paramValueStr, out ushort val))
                                         {
-                                            result.Add((byte)(val >> 8)); result.Add((byte)(val & 0xFF));
+                                            result.Add((byte)(val >> 8));
+                                            result.Add((byte)(val & 0xFF));
                                         }
                                     }
                                     else if (paramType == "PARAM_INT")
@@ -1944,28 +1989,44 @@ namespace WonderfulTool
         private string NormalizeTagDisplayName(string rawValue)
         {
             if (string.IsNullOrWhiteSpace(rawValue))
-                return string.IsNullOrEmpty(rawValue) ? string.Empty : rawValue.Trim();
-
-            string result = rawValue.Replace("\r", " ").Replace("\n", " ").Trim();
-
+                return rawValue ?? string.Empty;
+        
+            // Substitui quebras de linha por espaço
+            string result = rawValue.Replace("\r", " ").Replace("\n", " ");
+        
             int safetyCounter = 0;
             // PT: Remove recursivamente as tags aninhadas.
             // EN: Recursively removes nested tags.
             while (safetyCounter < 10)
             {
-                string replaced = NestedTagPattern.Replace(result, match => match.Groups[2].Value);
+                string replaced = NestedTagPattern.Replace(result, match =>
+                {
+                    var inst = match.Groups[1].Value.ToUpperInvariant();
+                    var param = match.Groups[2].Value;
+
+                    // Instruções decorativas que não devem virar texto dentro do nome:
+                    if (inst == "COLOR" || inst == "PAUSE" || inst == "WAIT" || inst == "ICON")
+                    {
+                        // remove completamente a tag (ou substitui por espaço para evitar concatenação)
+                        return " ";
+                    }
+
+                    // Se for uma tag que tem sentido manter o parâmetro como parte do nome,
+                    // podemos devolver param. Caso contrário, remover.
+                    // Ajustar aqui se houver mais instruções específicas para preservar.
+                    return param;
+                });
+
                 if (replaced.Equals(result, StringComparison.Ordinal))
                     break;
-
                 result = replaced;
                 safetyCounter++;
             }
 
-            // PT: Colapsa múltiplos espaços em um só e converte para maiúsculas.
-            // EN: Collapses multiple spaces into one and converts to uppercase.
+            // Colapsa múltiplos espaços em um único espaço.
             result = CollapseWhitespacePattern.Replace(result, " ").Trim();
-
-            return result.ToUpperInvariant();
+        
+            return result.ToUpperInvariant(); // Converte para maiúsculas no final
         }
         // PT: Atualiza todas as linhas no DataGridView, decodificando as mensagens brutas.
         // EN: Updates all rows in the DataGridView by decoding the raw messages.
