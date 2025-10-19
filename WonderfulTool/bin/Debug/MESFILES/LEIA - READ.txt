@@ -1,0 +1,53 @@
+--- PORTUGUÊS ---
+
+Para a sua versão do jogo, coloque os seguintes arquivos .MES na pasta correspondente:
+
+Arquivos:
+farmcrop.mes, item.mes, people.mes, phrase.mes, string.mes, structure.mes
+
+
+Pasta de Destino      Versão do Jogo
+------------------    -------------------------------------------
+awl                   Harvest Moon: A Wonderful Life (NGC USA)
+awljpn                Harvest Moon: A Wonderful Life (NGC JAP)
+awlse                 Harvest Moon: A Wonderful Life (PS2)
+anawl                 Harvest Moon: Another Wonderful Life (NGC USA)
+anawljpn              Harvest Moon: Another Wonderful Life (NGC JAP)
+
+
+======================================================================
+
+--- ENGLISH ---
+
+For your game version, place the following .MES files into the corresponding folder:
+
+Files:
+farmcrop.mes, item.mes, people.mes, phrase.mes, string.mes, structure.mes
+
+
+Destination Folder    Game Version
+------------------    -------------------------------------------
+awl                   Harvest Moon: A Wonderful Life (NGC USA)
+awljpn                Harvest Moon: A Wonderful Life (NGC JAP)
+awlse                 Harvest Moon: A Wonderful Life (PS2)
+anawl                 Harvest Moon: Another Wonderful Life (NGC USA)
+anawljpn              Harvest Moon: Another Wonderful Life (NGC JAP)
+
+
+======================================================================
+
+--- ESPAÑOL ---
+
+Para tu versión del juego, coloca los siguientes archivos .MES en la carpeta correspondiente:
+
+Archivos:
+farmcrop.mes, item.mes, people.mes, phrase.mes, string.mes, structure.mes
+
+
+Carpeta de Destino    Versión del Juego
+------------------    -------------------------------------------
+awl                   Harvest Moon: A Wonderful Life (NGC USA)
+awljpn                Harvest Moon: A Wonderful Life (NGC JAP)
+awlse                 Harvest Moon: A Wonderful Life (PS2)
+anawl                 Harvest Moon: Another Wonderful Life (NGC USA)
+anawljpn              Harvest Moon: Another Wonderful Life (NGC JAP)
