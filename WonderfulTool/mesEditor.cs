@@ -1097,6 +1097,14 @@ namespace WonderfulTool
             {
                 isBigEndian = (fileType == FileType.GameCubeMES);
                 byte[] fileBytes = File.ReadAllBytes(path);
+
+                //Lista para guardar as mensagens decodificadas na ordem correta.
+                var decodedMessages = new List<string>();
+                //Dicionário para cachear textos já decodificados (Ponteiro -> Texto).
+                var pointerCache = new Dictionary<uint, string>();
+
+                rawMesMessages.Clear(); // Limpa a lista antiga antes de carregar.
+
                 using (var br = new BinaryReader(new MemoryStream(fileBytes)))
                 {
                     br.BaseStream.Seek(4, SeekOrigin.Begin);
@@ -1115,28 +1123,83 @@ namespace WonderfulTool
                     for (int i = 0; i < textCount; i++)
                     {
                         uint currentPointer = pointers[i];
-                        uint nextPointer = (i + 1 < textCount) ? pointers[i + 1] : (uint)br.BaseStream.Length;
-                        if (currentPointer >= br.BaseStream.Length) continue;
-                        // PT: Calcula o tamanho da mensagem e a lê.
-                        // EN: Calculates the message size and reads it.
-                        int messageLength = (int)(nextPointer - currentPointer);
-                        if (messageLength <= 0)
+
+                        //Lógica de cache
+                        if (pointerCache.ContainsKey(currentPointer))
                         {
+                            // Se o ponteiro já foi lido, reutiliza o texto do cache.
+                            decodedMessages.Add(pointerCache[currentPointer]);
+                            // Adiciona um array de bytes vazio a rawMesMessages para manter a contagem de mensagens consistente,
+                            // embora a lógica de salvamento não use isso. Isso é apenas para consistência.
                             rawMesMessages.Add(new byte[0]);
-                            continue;
                         }
-                        br.BaseStream.Seek(currentPointer, SeekOrigin.Begin);
-                        byte[] messageBytes = br.ReadBytes(messageLength);
-                        rawMesMessages.Add(messageBytes);
+                        else
+                        {
+                            // Se for um ponteiro novo, lê e decodifica.
+                            uint nextPointer = (i + 1 < textCount) ? pointers[i + 1] : (uint)br.BaseStream.Length;
+
+                            // Lógica para encontrar o fim real da mensagem em caso de ponteiros duplicados não sequenciais
+                            if (currentPointer > 0)
+                            {
+                                uint realNextPointer = (uint)br.BaseStream.Length;
+                                // Encontra o próximo ponteiro *diferente* para delimitar o tamanho
+                                for (int j = i + 1; j < textCount; j++)
+                                {
+                                    if (pointers[j] > currentPointer)
+                                    {
+                                        realNextPointer = pointers[j];
+                                        break;
+                                    }
+                                }
+                                nextPointer = realNextPointer;
+                            }
+
+
+                            if (currentPointer >= br.BaseStream.Length)
+                            {
+                                decodedMessages.Add("");
+                                rawMesMessages.Add(new byte[0]);
+                                continue;
+                            }
+
+                            // PT: Calcula o tamanho da mensagem e a lê.
+                            // EN: Calculates the message size and reads it.
+                            int messageLength = (int)(nextPointer - currentPointer);
+                            if (messageLength <= 0)
+                            {
+                                decodedMessages.Add("");
+                                rawMesMessages.Add(new byte[0]);
+                                // Cache de mensagens vazias também
+                                if (currentPointer > 0) pointerCache[currentPointer] = "";
+                                continue;
+                            }
+
+                            br.BaseStream.Seek(currentPointer, SeekOrigin.Begin);
+                            byte[] messageBytes = br.ReadBytes(messageLength);
+                            rawMesMessages.Add(messageBytes);
+
+                            string decodedText = DecodeMessage(messageBytes);
+                            decodedMessages.Add(decodedText);
+                            // Adiciona o texto recém-decodificado ao cache.
+                            if (currentPointer > 0) pointerCache[currentPointer] = decodedText;
+                        }
                     }
                 }
                 // PT: Invoca a atualização da UI na thread principal.
                 // EN: Invokes the UI update on the main thread.
                 this.Invoke((MethodInvoker)delegate
                 {
+                    dataGridText.Rows.Clear();
                     saveMenu.Enabled = true;
                     saveAsMenu.Enabled = true;
-                    UpdateAllRows();
+                    //Popula o DataGridView com as mensagens decodificadas e cacheadas.
+                    for (int i = 0; i < decodedMessages.Count; i++)
+                    {
+                        string text = decodedMessages[i];
+                        string stateText = CalculateLineStates(text);
+                        int rowIndex = dataGridText.Rows.Add(i, text, text, stateText);
+                        AtualizarEstiloDaLinha(dataGridText.Rows[rowIndex]);
+                    }
                 });
             }
             catch (Exception ex)
@@ -1183,7 +1246,7 @@ namespace WonderfulTool
                     }
                     catch (IndexOutOfRangeException) { sb.Append("-ERRO_PARAM"); }
                     break;
-                
+
                 case "PHRASE":
                 case "PHRASE2":
                     try
@@ -1301,7 +1364,7 @@ namespace WonderfulTool
                                 if (instruction.Name.Equals("COLORRGBA", StringComparison.OrdinalIgnoreCase))
                                 {
                                     // Formato hexadecimal específico para COLORRGBA
-                                    sb.Append($"0x{p_int:X8}");
+                                    sb.Append($"0x{p_int:x8}");
                                 }
                                 else
                                 {
@@ -1990,10 +2053,10 @@ namespace WonderfulTool
         {
             if (string.IsNullOrWhiteSpace(rawValue))
                 return rawValue ?? string.Empty;
-        
+
             // Substitui quebras de linha por espaço
             string result = rawValue.Replace("\r", " ").Replace("\n", " ");
-        
+
             int safetyCounter = 0;
             // PT: Remove recursivamente as tags aninhadas.
             // EN: Recursively removes nested tags.
@@ -2025,7 +2088,7 @@ namespace WonderfulTool
 
             // Colapsa múltiplos espaços em um único espaço.
             result = CollapseWhitespacePattern.Replace(result, " ").Trim();
-        
+
             return result.ToUpperInvariant(); // Converte para maiúsculas no final
         }
         // PT: Atualiza todas as linhas no DataGridView, decodificando as mensagens brutas.
@@ -2400,14 +2463,15 @@ namespace WonderfulTool
             }
             bool localIsBigEndian = (fileType == FileType.GameCubeMES);
 
+            //Lista para guardar as mensagens decodificadas na ordem correta.
             var decodedMessages = new List<string>();
-            var localRawMessages = new List<byte[]>();
+            //Dicionário para cachear textos já decodificados (Ponteiro -> Texto).
+            var pointerCache = new Dictionary<uint, string>();
+
             byte[] fileBytes = File.ReadAllBytes(filePath);
 
             using (var br = new BinaryReader(new MemoryStream(fileBytes)))
             {
-                // PT: A lógica de leitura é a mesma de LoadMesFile.
-                // EN: The reading logic is the same as in LoadMesFile.
                 br.BaseStream.Seek(4, SeekOrigin.Begin);
                 uint textCount = localIsBigEndian ? SwapEndianness(br.ReadUInt32()) : br.ReadUInt32();
                 uint[] pointers = new uint[textCount];
@@ -2419,26 +2483,57 @@ namespace WonderfulTool
                 for (int i = 0; i < textCount; i++)
                 {
                     uint currentPointer = pointers[i];
-                    uint nextPointer = (i + 1 < textCount) ? pointers[i + 1] : (uint)br.BaseStream.Length;
-                    if (currentPointer >= br.BaseStream.Length) continue;
 
-                    int messageLength = (int)(nextPointer - currentPointer);
-                    if (messageLength <= 0)
+                    // Lógica de cache
+                    if (pointerCache.ContainsKey(currentPointer))
                     {
-                        localRawMessages.Add(new byte[0]);
-                        continue;
+                        // Se o ponteiro já foi lido, reutiliza o texto do cache.
+                        decodedMessages.Add(pointerCache[currentPointer]);
                     }
-                    br.BaseStream.Seek(currentPointer, SeekOrigin.Begin);
-                    byte[] messageBytes = br.ReadBytes(messageLength);
-                    localRawMessages.Add(messageBytes);
-                }
-            }
+                    else
+                    {
+                        // Se for um ponteiro novo, lê e decodifica.
+                        uint nextPointer = (i + 1 < textCount) ? pointers[i + 1] : (uint)br.BaseStream.Length;
 
-            // PT: Decodifica cada mensagem bruta em texto.
-            // EN: Decodes each raw message into text.
-            foreach (byte[] messageData in localRawMessages)
-            {
-                decodedMessages.Add(DecodeMessage(messageData));
+                        // Lógica para encontrar o fim real da mensagem em caso de ponteiros duplicados não sequenciais
+                        if (currentPointer > 0)
+                        {
+                            uint realNextPointer = (uint)br.BaseStream.Length;
+                            // Encontra o próximo ponteiro *diferente* para delimitar o tamanho
+                            for (int j = i + 1; j < textCount; j++)
+                            {
+                                if (pointers[j] > currentPointer)
+                                {
+                                    realNextPointer = pointers[j];
+                                    break;
+                                }
+                            }
+                            nextPointer = realNextPointer;
+                        }
+
+                        if (currentPointer >= br.BaseStream.Length)
+                        {
+                            decodedMessages.Add("");
+                            continue;
+                        }
+
+                        int messageLength = (int)(nextPointer - currentPointer);
+                        if (messageLength <= 0)
+                        {
+                            decodedMessages.Add("");
+                            // Cache de mensagens vazias também
+                            if (currentPointer > 0) pointerCache[currentPointer] = "";
+                            continue;
+                        }
+                        br.BaseStream.Seek(currentPointer, SeekOrigin.Begin);
+                        byte[] messageBytes = br.ReadBytes(messageLength);
+
+                        string decodedText = DecodeMessage(messageBytes);
+                        decodedMessages.Add(decodedText);
+                        // Adiciona o texto recém-decodificado ao cache.
+                        if (currentPointer > 0) pointerCache[currentPointer] = decodedText;
+                    }
+                }
             }
 
             return decodedMessages;
@@ -2640,55 +2735,130 @@ namespace WonderfulTool
         // EN: Click handler to extract multiple .MES files using the currently loaded character map.
         private void extrairVáriosArquivosComOMapaAtual_Click(object sender, EventArgs e)
         {
+            // PT: Verifica se um mapa está carregado a partir da seleção do ComboBox.
+            // EN: Checks if a map is loaded from the ComboBox selection.
+            if (masterMap.Count == 0 || comboBoxCodification.SelectedItem == null)
+            {
+                MessageBox.Show("Nenhum mapa de caracteres está carregado! Por favor, selecione uma codificação na lista.", "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
             using (var openFileDialog = new OpenFileDialog
             {
                 Filter = "Arquivos de Mensagem (*.mes)|*.mes",
-                Title = "Selecione os arquivos MES para extrair",
+                Title = "Selecione os arquivos MES para extrair com o mapa atual",
                 Multiselect = true
             })
             {
                 if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
+                    this.Cursor = Cursors.WaitCursor;
+                    int successCount = 0;
+                    var failedFiles = new List<string>();
+
                     foreach (var mesFilePath in openFileDialog.FileNames)
                     {
                         try
                         {
+                            var decodedMessages = new List<string>();
+                            var pointerCache = new Dictionary<uint, string>();
+
+                            byte[] fileBytes = File.ReadAllBytes(mesFilePath);
                             FileType fileType = DetermineFileType(mesFilePath);
-                            isBigEndian = (fileType == FileType.GameCubeMES);
+                            bool localIsBigEndian = (fileType == FileType.GameCubeMES);
 
-                            // PT: Verifica se um mapa está carregado.
-                            // EN: Checks if a map is loaded.
-                            if (masterMap.Count == 0)
+                            using (var br = new BinaryReader(new MemoryStream(fileBytes)))
                             {
-                                MessageBox.Show("Nenhum mapa de caracteres está carregado!", "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                                return;
-                            }
+                                br.BaseStream.Seek(4, SeekOrigin.Begin);
+                                uint textCount = localIsBigEndian ? SwapEndianness(br.ReadUInt32()) : br.ReadUInt32();
+                                uint[] pointers = new uint[textCount];
+                                for (int i = 0; i < textCount; i++)
+                                {
+                                    pointers[i] = localIsBigEndian ? SwapEndianness(br.ReadUInt32()) : br.ReadUInt32();
+                                }
 
-                            rawMesMessages.Clear();
-                            LoadMesFile(mesFilePath, fileType);
+                                for (int i = 0; i < textCount; i++)
+                                {
+                                    uint currentPointer = pointers[i];
+                                    if (pointerCache.ContainsKey(currentPointer))
+                                    {
+                                        decodedMessages.Add(pointerCache[currentPointer]);
+                                    }
+                                    else
+                                    {
+                                        uint nextPointer;
+                                        uint realNextPointer = (uint)br.BaseStream.Length;
+                                        for (int j = i + 1; j < textCount; j++)
+                                        {
+                                            if (pointers[j] > currentPointer)
+                                            {
+                                                realNextPointer = pointers[j];
+                                                break;
+                                            }
+                                        }
+                                        nextPointer = realNextPointer;
+
+                                        if (currentPointer >= br.BaseStream.Length)
+                                        {
+                                            decodedMessages.Add("");
+                                            continue;
+                                        }
+
+                                        int messageLength = (int)(nextPointer - currentPointer);
+                                        if (messageLength <= 0)
+                                        {
+                                            decodedMessages.Add("");
+                                            if (currentPointer > 0) pointerCache[currentPointer] = "";
+                                            continue;
+                                        }
+
+                                        br.BaseStream.Seek(currentPointer, SeekOrigin.Begin);
+                                        byte[] messageBytes = br.ReadBytes(messageLength);
+
+                                        // USA O MAPA ATUALMENTE CARREGADO
+                                        string decodedText = DecodeMessage(messageBytes);
+                                        decodedMessages.Add(decodedText);
+                                        if (currentPointer > 0) pointerCache[currentPointer] = decodedText;
+                                    }
+                                }
+                            }
 
                             // PT: Constrói o conteúdo do arquivo .TXT.
                             // EN: Builds the content of the .TXT file.
                             StringBuilder sb = new StringBuilder();
-                            for (int i = 0; i < rawMesMessages.Count; i++)
+                            for (int i = 0; i < decodedMessages.Count; i++)
                             {
-                                string decodedText = DecodeMessage(rawMesMessages[i]);
                                 sb.AppendLine($"--- message {i} ---");
-                                sb.AppendLine(decodedText);
+                                sb.AppendLine(decodedMessages[i]);
                             }
 
                             // PT: Salva o arquivo .TXT.
                             // EN: Saves the .TXT file.
                             string outputTxt = Path.ChangeExtension(mesFilePath, ".txt");
-                            File.WriteAllText(outputTxt, sb.ToString(), Encoding.UTF8);
+                            File.WriteAllText(outputTxt, sb.ToString().TrimEnd(), Encoding.UTF8);
+                            successCount++;
                         }
                         catch (Exception ex)
                         {
-                            MessageBox.Show($"Erro ao processar {mesFilePath}:\n{ex.Message}");
+                            failedFiles.Add($"{Path.GetFileName(mesFilePath)}: {ex.Message}");
                         }
                     }
 
-                    MessageBox.Show("Extração concluída!", "Sucesso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    this.Cursor = Cursors.Default;
+
+                    // PT: Exibe um relatório da operação.
+                    // EN: Displays a report of the operation.
+                    var report = new StringBuilder();
+                    report.AppendLine($"{successCount} de {openFileDialog.FileNames.Length} arquivos extraídos com sucesso.");
+                    if (failedFiles.Any())
+                    {
+                        report.AppendLine("\nOcorreram os seguintes erros:");
+                        foreach (string error in failedFiles)
+                        {
+                            report.AppendLine($"- {error}");
+                        }
+                    }
+                    MessageBox.Show(report.ToString(), "Extração Concluída", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
         }
