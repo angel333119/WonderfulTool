@@ -1450,6 +1450,16 @@ namespace WonderfulTool
                 // EN: 5. If nothing was found, registers it as an unknown code.
                 if (code1 >= 0x80 && isTwoByteCandidate)
                 {
+                    // Adiciona uma verificação para não tratar um terminador como parte de um símbolo.
+                    // Se o próximo byte for nulo (fim da mensagem), é mais provável que 'code1' seja
+                    // um código desconhecido de 1 byte, e não o início de um código de 2 bytes.
+                    if (data[i + 1] == 0x00)
+                    {
+                        sb.Append($"{{{code1}}}");
+                        i += 1;
+                        continue; // Continua para o loop principal, que encontrará o terminador 0x00 e sairá.
+                    }
+
                     // PT: Tratamento especial para a tag {SYMBOL-id}.
                     // EN: Special handling for the {SYMBOL-id} tag.
                     if (code2 >= 0x8000)
