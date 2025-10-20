@@ -1487,95 +1487,33 @@ namespace WonderfulTool
         #region Métodos de Escrita e Codificação
         // PT: Escreve os dados do DataGridView em um arquivo .MES no caminho especificado.
         // EN: Writes the DataGridView data to a .MES file at the specified path.
+        // PT: Escreve os dados do DataGridView em um arquivo .MES no caminho especificado.
+        // EN: Writes the DataGridView data to a .MES file at the specified path.
         private void WriteMesFile(string outputPath)
         {
             try
             {
+                // 1. Coleta e codifica as mensagens do DataGridView
                 var messagesToEncode = new List<string>();
                 foreach (DataGridViewRow row in dataGridText.Rows)
                 {
                     if (row.IsNewRow) continue;
                     messagesToEncode.Add(row.Cells["Edited"].Value?.ToString() ?? "");
                 }
+                var encodedMessages = messagesToEncode.Select(msg => EncodeMessage(msg)).ToList();
 
-                var encodedMessages = new List<byte[]>();
-                // PT: Codifica cada mensagem de texto em um array de bytes.
-                // EN: Encodes each text message into a byte array.
-                foreach (string msg in messagesToEncode)
-                {
-                    encodedMessages.Add(EncodeMessage(msg));
-                }
+                // 2. Chama o método de escrita de arquivo (que não mostra mensagem)
+                WriteNewMesFile(outputPath, encodedMessages, this.isBigEndian);
 
-                using (var fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write))
-                using (var bw = new BinaryWriter(fs))
-                {
-                    // PT: Escreve o "magic number" do arquivo, dependendo da endianidade.
-                    // EN: Writes the file's "magic number", depending on endianness.
-                    uint magic = isBigEndian ? 0xB0B0C3CD : 0xCDC3B0B0;
-                    if (magic == 0) magic = 0xB0B0C3CD;
-
-                    bw.Write(magic);
-                    // PT: Escreve o número de mensagens.
-                    // EN: Writes the number of messages.
-                    uint messageCount = (uint)encodedMessages.Count;
-                    bw.Write(isBigEndian ? SwapEndianness(messageCount) : messageCount);
-
-                    // PT: Reserva espaço para a tabela de ponteiros.
-                    // EN: Reserves space for the pointer table.
-                    long pointerTableOffset = bw.BaseStream.Position;
-                    bw.BaseStream.Seek(messageCount * 4, SeekOrigin.Current);
-
-                    var pointers = new List<uint>();
-                    long currentDataOffset = bw.BaseStream.Position;
-
-                    // PT: Escreve os dados de cada mensagem, alinhando em 4 bytes.
-                    // EN: Writes the data for each message, aligning to 4 bytes.
-                    foreach (byte[] messageData in encodedMessages)
-                    {
-                        while (currentDataOffset % 4 != 0)
-                        {
-                            bw.Write((byte)0x00);
-                            currentDataOffset++;
-                        }
-
-                        pointers.Add((uint)currentDataOffset);
-                        bw.Write(messageData);
-                        currentDataOffset += messageData.Length;
-                    }
-
-                    // PT: Adiciona preenchimento final para alinhar o arquivo em 32 bytes.
-                    // EN: Adds final padding to align the file to 32 bytes.
-                    long finalPadding = currentDataOffset % 32;
-                    if (finalPadding != 0)
-                    {
-                        for (int i = 0; i < 32 - finalPadding; i++)
-                        {
-                            bw.Write((byte)0x00);
-                        }
-                    }
-
-                    // PT: Volta para o início da tabela de ponteiros e escreve os offsets corretos.
-                    // EN: Returns to the beginning of the pointer table and writes the correct offsets.
-                    long endOfDataOffset = bw.BaseStream.Position;
-                    bw.BaseStream.Seek(pointerTableOffset, SeekOrigin.Begin);
-                    foreach (uint pointer in pointers)
-                    {
-                        bw.Write(isBigEndian ? SwapEndianness(pointer) : pointer);
-                    }
-
-                    bw.BaseStream.Seek(endOfDataOffset, SeekOrigin.Begin);
-                }
-
-                // PT: Atualiza o estado da UI e notifica o usuário do sucesso.
-                // EN: Updates the UI state and notifies the user of success.
+                // 3. Atualiza a UI e mostra a mensagem de sucesso
                 currentFilePath = outputPath;
                 this.Text = $"Mes Editor - {Path.GetFileName(currentFilePath)}";
                 saveMenu.Enabled = true;
-                MessageBox.Show($"Arquivo salvo com sucesso em:\n{outputPath}", "Sucesso");
+                MessageBox.Show($"Arquivo salvo com sucesso em:\n{outputPath}", "Sucesso", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Ocorreu um erro ao salvar o arquivo .MES:\n{ex.Message}\n\nStackTrace:\n{ex.StackTrace}", "Erro de Escrita");
+                MessageBox.Show($"Ocorreu um erro ao salvar o arquivo .MES:\n{ex.Message}\n\nStackTrace:\n{ex.StackTrace}", "Erro de Escrita", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -1834,6 +1772,8 @@ namespace WonderfulTool
         }
         // PT: Lê e processa um arquivo de mapa de caracteres, preenchendo os dicionários de mapeamento.
         // EN: Reads and processes a character map file, populating the mapping dictionaries.
+        // PT: Lê e processa um arquivo de mapa de caracteres, preenchendo os dicionários de mapeamento.
+        // EN: Reads and processes a character map file, populating the mapping dictionaries.
         private void LoadCharacterMap(string filePath, bool isShared = false)
         {
             if (!File.Exists(filePath))
@@ -1850,7 +1790,7 @@ namespace WonderfulTool
                 instructionMap.Clear();
                 reverseMasterMap.Clear();
                 reverseInstructionMap.Clear();
-                isBigEndian = false;
+                // **NÃO** resete isBigEndian aqui, vamos ler do arquivo.
                 codigoVersaoAtual = "";
             }
 
@@ -1858,10 +1798,14 @@ namespace WonderfulTool
             {
                 var lines = File.ReadAllLines(filePath);
 
+                // PT: Se não for compartilhado, processa as diretivas de cabeçalho (#Version, #Endian).
+                // EN: If not shared, processes header directives (#Version, #Endian).
                 if (!isShared)
                 {
-                    // PT: Procura pela linha de versão para identificar o jogo.
-                    // EN: Looks for the version line to identify the game.
+                    // PT: Define um valor padrão antes de ler o arquivo.
+                    // EN: Sets a default value before reading the file.
+                    isBigEndian = false;
+
                     foreach (var line in lines)
                     {
                         var trimmedLine = line.Trim();
@@ -1871,8 +1815,16 @@ namespace WonderfulTool
                             if (match.Success)
                             {
                                 codigoVersaoAtual = match.Value;
-                                break;
                             }
+                        }
+                        // NOVO: Lógica para ler a configuração de Endianness
+                        else if (trimmedLine.Equals("BIG", StringComparison.OrdinalIgnoreCase))
+                        {
+                            isBigEndian = true;
+                        }
+                        else if (trimmedLine.Equals("LIT", StringComparison.OrdinalIgnoreCase))
+                        {
+                            isBigEndian = false;
                         }
                     }
                 }
@@ -1889,6 +1841,9 @@ namespace WonderfulTool
                     // EN: Ignores empty lines, comments, or separators.
                     if (string.IsNullOrEmpty(trimmedLine) || trimmedLine.StartsWith("#") || trimmedLine.StartsWith("="))
                         continue;
+
+                    // ... O RESTO DO MÉTODO CONTINUA EXATAMENTE IGUAL ...
+
                     // PT: Identifica a seção atual do mapa (Caracteres, Bytecodes, etc.).
                     // EN: Identifies the current map section (Caracteres, Bytecodes, etc.).
                     if (trimmedLine == "Caracteres" || trimmedLine == "Bytecodes" || trimmedLine == "Instruções")
@@ -2068,6 +2023,7 @@ namespace WonderfulTool
             string result = rawValue.Replace("\r", " ").Replace("\n", " ");
 
             int safetyCounter = 0;
+
             // PT: Remove recursivamente as tags aninhadas.
             // EN: Recursively removes nested tags.
             while (safetyCounter < 10)
@@ -2875,8 +2831,18 @@ namespace WonderfulTool
 
         // PT: Manipulador de clique para inserir vários arquivos .TXT usando o mapa de caracteres atualmente carregado.
         // EN: Click handler to insert multiple .TXT files using the currently loaded character map.
+        // PT: Manipulador de clique para inserir vários arquivos .TXT usando o mapa de caracteres atualmente carregado.
+        // EN: Click handler to insert multiple .TXT files using the currently loaded character map.
         private void inserirVáriosArquivosComOMapaAtual_Click(object sender, EventArgs e)
         {
+            // PT: Verifica se um mapa está carregado.
+            // EN: Checks if a map is loaded.
+            if (masterMap.Count == 0 || comboBoxCodification.SelectedItem == null)
+            {
+                MessageBox.Show("Nenhum mapa de caracteres está carregado! Por favor, selecione uma codificação na lista.", "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
             using (var openFileDialog = new OpenFileDialog
             {
                 Filter = "Arquivos de Texto (*.txt)|*.txt",
@@ -2886,62 +2852,46 @@ namespace WonderfulTool
             {
                 if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
+                    this.Cursor = Cursors.WaitCursor;
+                    int successCount = 0;
+                    var failedFiles = new List<string>();
+
                     foreach (var txtFilePath in openFileDialog.FileNames)
                     {
+                        string txtFileName = Path.GetFileName(txtFilePath);
                         try
                         {
-                            // PT: Verifica se um mapa está carregado.
-                            // EN: Checks if a map is loaded.
-                            if (masterMap.Count == 0)
-                            {
-                                MessageBox.Show("Nenhum mapa de caracteres está carregado!", "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                                return;
-                            }
+                            var messages = ParseTxtFile(txtFilePath);
+                            var encodedMessages = messages.Select(msg => EncodeMessage(msg)).ToList();
+                            string outputMesPath = Path.ChangeExtension(txtFilePath, ".mes");
 
-                            var allLines = File.ReadAllLines(txtFilePath);
-                            // PT: Analisa o arquivo .TXT para extrair as mensagens.
-                            // EN: Parses the .TXT file to extract the messages.
-                            var messages = new List<string>();
-                            var currentMessage = new StringBuilder();
-                            bool isReading = false;
+                            // PT: Esta chamada agora usará o 'this.isBigEndian' que foi
+                            //     corretamente configurado quando o mapa foi selecionado no ComboBox.
+                            // EN: This call will now use 'this.isBigEndian' which was
+                            //     correctly configured when the map was selected in the ComboBox.
+                            WriteNewMesFile(outputMesPath, encodedMessages, this.isBigEndian);
 
-                            foreach (var line in allLines)
-                            {
-                                if (line.StartsWith("--- message"))
-                                {
-                                    if (isReading) messages.Add(currentMessage.ToString().TrimEnd());
-                                    currentMessage.Clear();
-                                    isReading = true;
-                                }
-                                else if (isReading)
-                                {
-                                    if (currentMessage.Length > 0) currentMessage.AppendLine();
-                                    currentMessage.Append(line);
-                                }
-                            }
-                            if (isReading) messages.Add(currentMessage.ToString().TrimEnd());
-
-                            // PT: Codifica as mensagens em bytes.
-                            // EN: Encodes the messages into bytes.
-                            var encodedMessages = new List<byte[]>();
-                            foreach (string msg in messages)
-                            {
-                                encodedMessages.Add(EncodeMessage(msg));
-                            }
-
-                            // PT: Escreve o novo arquivo .MES.
-                            // EN: Writes the new .MES file.
-                            string outputMes = Path.ChangeExtension(txtFilePath, ".mes");
-                            WriteMesFile(outputMes);
-
+                            successCount++;
                         }
                         catch (Exception ex)
                         {
-                            MessageBox.Show($"Erro ao processar {txtFilePath}:\n{ex.Message}");
+                            failedFiles.Add($"{txtFileName}: {ex.Message}");
                         }
                     }
 
-                    MessageBox.Show("Inserção concluída!", "Sucesso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    this.Cursor = Cursors.Default;
+
+                    var report = new StringBuilder();
+                    report.AppendLine($"{successCount} de {openFileDialog.FileNames.Length} arquivos inseridos com sucesso.");
+                    if (failedFiles.Any())
+                    {
+                        report.AppendLine("\nOcorreram os seguintes erros:");
+                        foreach (string error in failedFiles)
+                        {
+                            report.AppendLine($"- {error}");
+                        }
+                    }
+                    MessageBox.Show(report.ToString(), "Inserção em Lote Concluída", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
         }
